@@ -390,7 +390,7 @@ function model_setup(options::Dict,plot_dir::String,io)
         f_A = @sprintf("%.6g",Af/1e3)
 
         # Checking Termination Criteria, time is in Myr, amplitude is in meters
-        if time >= max_time || itime >= max_step || (Af/Ai <= 1/exp(1) && (ice_shell_thickness[itime] - ice_shell_thickness[1]) > (options["hice"] * 0.10))
+        if time >= max_time || itime >= max_step || ( Af/Ai <= 1/exp(1) && (ice_shell_thickness[itime] - ice_shell_thickness[1]) > (options["hice"] * 0.10) )
             terminate = true
             ### Final Plots ###
             get_plots_new(grid,Snew,Tnew,Xnew,"final",plot_dir)
@@ -442,9 +442,9 @@ function modelrun()
     ### Thickening times ###
     analytic_thickening_rate = get_thickening_rate(options)
     analytic_thickening_time = get_thickening_time(options,analytic_thickening_rate)
-    t_thick = compute_numerical_thickening_time(ice_shell_thickness,time_plot,options["hice"])
+    t_thick = compute_numerical_thickening_time(ice_shell_thickness,time_plot,options)
     t_thick_fitted_rate = fitting_thickening_data(ice_shell_thickness,time_plot,itime,sub_plots)
-    t_thick_fitted = options["hice"]/t_thick_fitted_rate
+    t_thick_fitted = options["amplitude"]/t_thick_fitted_rate
     close(io)
     println("Model ran successfully")
     

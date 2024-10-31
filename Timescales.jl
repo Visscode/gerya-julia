@@ -58,14 +58,14 @@ function get_thickening_time(options,rate::Float64)
     Info:
     rate --- Rate of thickening in (m/s) 
     """
-    time = options["hice"]/rate
+    time = options["amplitude"]/rate
     return time/3.15e7
 end
 
-function compute_numerical_thickening_time(h::Vector{Any},t::Vector{Any},hi::Float64)
+function compute_numerical_thickening_time(h::Vector{Any},t::Vector{Any},options::Dict)
     thickening_rate = diff(h)./diff(t)  # Change in thickness / Change in time
     average_thickening_rate = mean(thickening_rate)
-    t_thickening = hi/average_thickening_rate
+    t_thickening = options["amplitude"]/average_thickening_rate
     return t_thickening/3.15e7
 end
 
