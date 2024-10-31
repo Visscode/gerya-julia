@@ -1,12 +1,20 @@
-if length(ARGS) > 4
+if length(ARGS) > 5
     error("specify proper input arguments for range function for ice shell thickness and wavelength topogaphy for ocean-ice interface")
 else
     ice_shell_thickness = parse(Float64,ARGS[1])
     wavelength = parse(Float64,ARGS[2])
     percent_amplitude = parse(Float64,ARGS[3])
-    top_dir = ARGS[4]
-    println("Model run for ice shell thickness of $ice_shell_thickness, wavelength of $wavelength, amplitude percentage of $percent_amplitude")
+    gravity = parse(Float64,ARGS[4])
+    top_dir = ARGS[5]
+    println("Model run for ice shell thickness of $ice_shell_thickness, wavelength of $wavelength, amplitude percentage of $percent_amplitude with gravity of $gravity")
 end
+
+# Uncomment for debugging run
+# ice_shell_thickness = 25.0
+# wavelength = 300.0
+# percent_amplitude = 20.0
+# top_dir = "test4"
+
 
 ### Model agruments ###
 options = Dict()
@@ -18,11 +26,12 @@ options["thermal conductivity of ice"] = 2.14 # W/m*K
 options["thermal diffusivity"] = options["thermal conductivity of ice"] / (options["density of ice"]*options["specific heat of ice"]) # m^2/s
 options["Tm"] = 273.0 # K
 options["thermal expansivity"] = 0.0
-options["ny"] = 301
+options["ny"] = 101
 options["markx"] = 6
 options["marky"] = 6
 options["hice"] = ice_shell_thickness*1e3
 options["wavelength"] = wavelength*1e3
+options["gravity of icy moon"] = gravity # m/s^2
 
 # Importing (using/include) packages and files needed for the code to run
 using SparseArrays
@@ -127,11 +136,12 @@ end
 ## starts here ##
 function model_setup(options::Dict,plot_dir::String,io)
     W = options["wavelength"]
-    H = options["hice"] + options["amplitude"] + options["hice"]/2
+    H = options["hice"] + options["amplitude"] + options["hice"]
     ny = options["ny"]
-    nx::Int64 = ceil(ny/H*W)
+    # nx::Int64 = ceil(ny/H*W)
+    nx::Int64 = ny+1
     gx = 0.0
-    gy = 0.113
+    gy = options["gravity of icy moon"]
 
     # -1 = insulating, 1 = constant temp
     Tbctype = [-1,-1,1,1] #left, right, top, bottom
@@ -140,7 +150,7 @@ function model_setup(options::Dict,plot_dir::String,io)
     markx = options["markx"]
     marky = options["marky"]
     seconds_in_year = 3.15e7
-    plot_interval = 1e3*seconds_in_year # 1 kyr
+    plot_interval = 1e4*seconds_in_year # 100 kyr - also sets the maximum timestep.
     end_time = 3e7*seconds_in_year
     dtmax = plot_interval
     grid = CartesianGrid(W,H,nx,ny)
@@ -285,11 +295,7 @@ function model_setup(options::Dict,plot_dir::String,io)
 
             # Computing the advection timestep
             this_dtmax = min(1.2*dt,dtmax)
-            dt = compute_timestep(grid,vxc,vyc;dtmax=this_dtmax,cfl=0.1)
-            diff_timestep = calculate_diffusion_timestep(grid,options)
-            if dt > diff_timestep
-                dt = diff_timestep
-            end
+            dt = compute_timestep(grid,vxc,vyc;dtmax=this_dtmax,cfl=0.1)            
        end
 
         last_T_norm = NaN
@@ -303,12 +309,21 @@ function model_setup(options::Dict,plot_dir::String,io)
         ititer = []
         titer = 1
         max_titer = 300
-        for titer=1:max_titer
+
+        diff_timestep = calculate_diffusion_timestep(grid,options)
+        n_T_timestep = ceil(dt/diff_timestep) # number of temperature timesteps to take
+        T_timestep = dt/n_T_timestep # temperature timestep
+        if n_T_timestep > 1
+            println("taking ",n_T_timestep," timesteps of ",T_timestep," to achieve dt=",dt)
+        end
+        T1 = copy(Tlast)
+        S1 = copy(Slast)
+        for titer=1:n_T_timestep
             # Computing conductive heat flux (using Tlast yields an explicit scheme)
-            q_vx,q_vy = compute_q_cond(grid,Tlast,kThermal_vx,kThermal_vy)
+            q_vx,q_vy = compute_q_cond(grid,T1,kThermal_vx,kThermal_vy)
 
             # Computing the new entropy (using Tlast yields an explicit scheme)
-            Snew = compute_S_new(grid,Tlast,rho_c,Hr,q_vx,q_vy,Slast,dt);
+            Snew = compute_S_new(grid,T1,rho_c,Hr,q_vx,q_vy,S1,T_timestep);
 
             # Updating the new temperature and new melt fraction from the new entropy
             Tnew,Xnew = update_T_X_from_S(Snew,options)
@@ -342,11 +357,13 @@ function model_setup(options::Dict,plot_dir::String,io)
                 break
             elseif titer == max_titer
                 terminate = true
-                @error(io,"Did not converged")
+                @error(io,"Did not converge")
             elseif any(isnan.(dT))
                 terminate = true
                 @error(io,"NaN or Inf apperred")
             end
+            S1 = Snew 
+            T1 = Tnew 
         end
 
         # Updating entropy on the markers by projecting dS from the cell centers to the markers
@@ -371,13 +388,14 @@ function model_setup(options::Dict,plot_dir::String,io)
         f_A = @sprintf("%.6g",Af/1e3)
 
         # Checking Termination Criteria, time is in Myr, amplitude is in meters
-        if time >= max_time || itime >= max_step || (ice_shell_thickness[itime] - ice_shell_thickness[1]) > (options["hice"] * 0.10)
+        if time >= max_time || itime >= max_step || 0.10*(1/exp(1)) <= 1/exp(1) && (ice_shell_thickness[itime] - ice_shell_thickness[1]) > (options["hice"] * 0.10) && Af/Ai <= 1/exp(1)
             terminate = true
             ### Final Plots ###
             get_plots_new(grid,Snew,Tnew,Xnew,"final",plot_dir)
         end
 
-        if itime == 1.0 || terminate
+        if itime == 1.0 || terminate 
+	#|| time-last_plot > plot_interval
             last_plot = time
             # Grid output
             name1 = @sprintf("%s/viz.%04d.vtr",output_dir,iout)
@@ -393,11 +411,11 @@ function model_setup(options::Dict,plot_dir::String,io)
         # Moving the markers and advancing to the next timestep
         move_markers_rk4!(markers,grid,vx,vy,dt,continuity_weight=1.0/3.0)
         time += dt
-        if mod(itime,200) == 0
+        if mod(itime,200) == 0 || true
             ice_shell = (ice_shell_thickness[itime] - ice_shell_thickness[1])
             ice_shell = @sprintf("%.8g",ice_shell/1e3)
-            println(io,"Ice shell as thicken by $ice_shell (km)")
-            println(io,"time = ",time/seconds_in_year," yr, ",time/seconds_in_year/1e3," Kyr, ",time/seconds_in_year/1e6," Myr")
+            println(io,"Ice shell has thickened by $ice_shell (km)")
+            println(io,"time = ",time/seconds_in_year/1e3," kyr, dt = ",dt/seconds_in_year/1e3,"kyr")
             println(io,"Finished step $itime")
         end
         itime += 1
@@ -415,19 +433,19 @@ function modelrun()
     println(io,"Using Wavelength: ", options["wavelength"] / 1e3, "(km)", ", ", "Using Ice Shell Thickness: ", options["hice"] / 1e3, "(km)", ", ", "Using Amplitude Percentage: $percent_amplitude%")
     grid,time,itime,Af,interface_topograhy_array,time_plot,amplitude,ice_shell_thickness = model_setup(options,sub_plots,io);
     interface_topography_over_time(grid,interface_topograhy_array,time_plot,itime,sub_plots)
-    ### Relaxation times ###
+    ### Viscous Relaxation times ###
     t_halfspace = get_halfspace_time_viscous(options["wavelength"])
     t_rel = get_numerical_time_viscous(options["amplitude"],Af,time)
     t_rel_fitted = fitting_amp_data(amplitude,time_plot,itime,sub_plots)
-    println(io,"Analytic relaxation time: ",t_halfspace,"(yr)",t_halfspace/1e3,"(kyr) or ",t_halfspace/1e6,"(Myr)")
-    println(io,"Numerical relaxation time: ",t_rel,"(yr)",t_rel/1e3,"(kyr) or ",t_rel/1e6,"(Myr)")
+    println(io,"Analytic relaxation time: ",t_halfspace,"(yr), ",t_halfspace/1e3,"(kyr) or ",t_halfspace/1e6,"(Myr)")
+    println(io,"Numerical relaxation time: ",t_rel,"(yr), ",t_rel/1e3,"(kyr) or ",t_rel/1e6,"(Myr)")
     ### Thickening times ###
     analytic_thickening_rate = get_thickening_rate(options["hice"])
     analytic_thickening_time = get_thickening_time(options["hice"],analytic_thickening_rate)
     t_thick = compute_numerical_thickening_time(ice_shell_thickness,time_plot,options["hice"])
-    t_thick_fitted = fitting_thicking_data(ice_shell_thickness,time_plot,itime,sub_plots)
-    println(io,"Analytic thickening time: ",analytic_thickeing_time,"(yr)",analytic_thickeing_time/1e3,"(kyr) or ",analytic_thickeing_time/1e6,"(Myr)")
-    println(io,"Numerical thickening time: ",t_thick,"(yr)",t_thick/1e3,"(kyr) or ",t_thick/1e6,"(Myr)")
+    t_thick_fitted = fitting_thickening_data(ice_shell_thickness,time_plot,itime,sub_plots)
+    println(io,"Analytic thickening time: ",analytic_thickening_time,"(yr), ",analytic_thickening_time/1e3,"(kyr), or ",analytic_thickening_time/1e6,"(Myr)")
+    println(io,"Numerical thickeing time: ",t_thick,"(yr), ",t_thick/1e3,"(kyr), or ",t_thick/1e6,"(Myr)")
     close(io)
     println("Model ran successfully")
     #io = open(top_dir*"/AmplitudeData.txt","w")
