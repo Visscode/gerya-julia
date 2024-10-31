@@ -12,8 +12,8 @@ function get_halfspace_time_viscous(options::Dict)
     ice_visosity --- Viscosity of ice in (Pa*s = kg/m*s)
     delta_rho --- Difference of density in (kg/m^3)
     """
-    g = 0.113 
-    ice_viscosity = 1e14
+    g = options["gravity of icy moon"]
+    ice_viscosity = options["reference viscosity"]
     delta_rho = options["density of ocean"] - options["density of ice"]
     time = (4*pi)*(ice_viscosity)*(1/g)*(1/delta_rho)*(1/options["wavelength"])
     return time/3.15e7
