@@ -26,7 +26,7 @@ function fitting_amp_data(amplitude::Vector{Any},times::Vector{Any},itime::Int64
     return fitted_time_amp
 end
 
-function fitting_thicking_data(thickness::Vector{Any},times::Vector{Any},itime::Int64,sub_plots::String)
+function fitting_thickening_data(thickness::Vector{Any},times::Vector{Any},itime::Int64,sub_plots::String)
     """
     Info: This function will fit the thickening data by performing a linear fitting
     """
