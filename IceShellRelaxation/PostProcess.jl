@@ -1,17 +1,17 @@
 # Function to get the directory path for a given combination of parameters
-function mk_main_dir(hice::Float64,lambda::Float64,amp::Float64)
-    dir_name = joinpath(@__DIR__,"Model_Outputs","h_$hice"*"_lambda_$lambda"*"_amp_$amp")
+function mk_main_dir(hice::Float64,lambda::Float64,amp::Float64,gravity::Float64,folder_name::String)
+    dir_name = joinpath(@__DIR__,folder_name,"h_$hice"*"_lambda_$lambda"*"_amp_$amp"*"_g_$gravity")
     return dir_name
 end    
 
 # Function to get the HDF5 file path for a given combination of parameters
-function get_hdf5_file_path(hice::Float64,lambda::Float64,amp::Float64)
-    main_dir = mk_main_dir(hice,lambda,amp)
+function get_hdf5_file_path(hice::Float64,lambda::Float64,amp::Float64,gravity::Float64,folder_name::String)
+    main_dir = mk_main_dir(hice,lambda,amp,gravity,folder_name)
     file_path = joinpath(main_dir,"data.hdf5")  # Assuming the HDF5 file is named "data.hdf5"
     return file_path
 end
 
-function combine_hdf5_files(ice_shell_thickness_range::AbstractRange{Float64},wavelength_range::AbstractRange{Float64},amplitude::Float64,output_path::String)
+function combine_hdf5_files(ice_shell_thickness_range::AbstractRange{Float64},wavelength_range::AbstractRange{Float64},amplitude::Float64,gravity::Float64,output_path::String,folder_name::String)
     # Collect unique values
     wavelength_set = Set{Float64}()
     ice_shell_thickness_set = Set{Float64}()
@@ -29,7 +29,7 @@ function combine_hdf5_files(ice_shell_thickness_range::AbstractRange{Float64},wa
     # Loop over the range of ice shell thickness and wavelength values
     for h in ice_shell_thickness_range
         for lambda in wavelength_range
-            file_path = get_hdf5_file_path(h,lambda,amplitude)
+            file_path = get_hdf5_file_path(h,lambda,amplitude,gravity,folder_name)
             if isfile(file_path)
                 h5open(file_path, "r") do file
                     g = file["Model Run"]
@@ -86,4 +86,47 @@ function combine_hdf5_files(ice_shell_thickness_range::AbstractRange{Float64},wa
         attrs(g)["Description"] = "This group contains combined and sorted unique datasets"
         println("Finished Saving Data into a HDF5 File")
     end
+end
+
+function get_files_of_interest(folder_path::String)
+    # Match files in the pattern /viz.XXXX.vtr
+    files = glob("viz.????.vtr",folder_path)
+    
+    # Extract numbers from file names
+    numbers = [parse(Int,match(r"\d+",basename(f)).match) for f in files]  # Convert generator to array
+    numbers = sort(numbers)  # Sort the array
+    
+    if isempty(numbers)
+        println("No matching files found.")
+        return nothing
+    end
+
+    # Determine first, last, and midpoint files
+    first_file = joinpath(folder_path, @sprintf("viz.%04d.vtr",numbers[1]))
+    last_file = joinpath(folder_path, @sprintf("viz.%04d.vtr",numbers[end]))
+    midpoint_index = Int(round(length(numbers) / 2))
+    midpoint_file = joinpath(folder_path, @sprintf("viz.%04d.vtr",numbers[midpoint_index]))
+
+    if first_file !== nothing
+        println("Initial State: ",first_file)
+        println("Midway State: ",midpoint_file)
+        println("Final State: ",last_file)
+    end
+    
+    return first_file,midpoint_file,last_file
+end
+
+function get_data_from_file(options::Dict)
+    iv = VTKFile(options["Initial"])
+    mv = VTKFile(options["Midpoint"])
+    fv = VTKFile(options["Final"])
+
+    gridx, gridy, gridz = get_coordinates(iv)
+    iT = transpose(reshape(get_data(get_cell_data(iv)["Temperature"]),101,100))
+    imelt = transpose(reshape(get_data(get_cell_data(iv)["Melt Fraction"]),101,100))
+    mT = transpose(reshape(get_data(get_cell_data(mv)["Temperature"]),101,100))
+    mmelt = transpose(reshape(get_data(get_cell_data(mv)["Melt Fraction"]),101,100))
+    fT = transpose(reshape(get_data(get_cell_data(fv)["Temperature"]),101,100))
+    fmelt = transpose(reshape(get_data(get_cell_data(fv)["Melt Fraction"]),101,100));
+    return gridx,gridy,iT,imelt,mT,mmelt,fT,fmelt
 end
